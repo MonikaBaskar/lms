@@ -10,10 +10,15 @@ from .serializers import RegisterSerializer
 from django.contrib.auth import get_user_model
 from .models import Profile
 from .serializers import ProfileSerializer
-from .permissions import has_permission
+# from .permissions import has_permission
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from rest_framework_simplejwt.authentication import JWTAuthentication
+from django.core.cache import cache
+from rest_framework_simplejwt.tokens import RefreshToken, AccessToken
+from rest_framework_simplejwt.exceptions import TokenError
+from django.conf import settings
+import datetime
 
 # ADMIN CREATE USER
 @method_decorator(csrf_exempt, name='dispatch') 
@@ -22,8 +27,6 @@ class CreateUserByAdmin(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        # print("USER:", request.user)
-        # print("ROLE:", request.user.role)
 
         if not request.user.role or request.user.role.name.lower() != 'admin':
             return Response({"error": "Only admin allowed"}, status=403)
@@ -53,25 +56,40 @@ class CreateUserByAdmin(APIView):
         return Response(serializer.errors, status=400)
     
 # register
+# class RegisterAPIView(APIView):
+#     authentication_classes = [] 
+#     permission_classes = [AllowAny]
+
+#     def post(self, request):
+#         data = request.data
+#         # role_name = 'student'
+
+#         try:
+#             role = Role.objects.get(name__iexact=data["role"].lower())
+#         except Role.DoesNotExist:
+#             return Response({"error": "Invalid role"}, status=400)
+
+#         serializer = RegisterSerializer(data=data)
+#         if serializer.is_valid():   
+#             user = serializer.save()
+#             user.role = role
+#             user.save()
+
+#             return Response({
+#                 "message": f"{user.username} registered successfully",
+#                 "role": user.role.name
+#             }, status=201)
+
+#         return Response(serializer.errors, status=400)
+@method_decorator(csrf_exempt, name='dispatch')
 class RegisterAPIView(APIView):
-    authentication_classes = [] 
+    authentication_classes = []
     permission_classes = [AllowAny]
 
     def post(self, request):
-        data = request.data
-        role_name = 'student'
-
-        try:
-            role = Role.objects.get(name__iexact=role_name)
-        except Role.DoesNotExist:
-            return Response({"error": "Invalid role"}, status=400)
-
-        serializer = RegisterSerializer(data=data)
+        serializer = RegisterSerializer(data=request.data)
         if serializer.is_valid():
             user = serializer.save()
-            user.role = role
-            user.save()
-
             return Response({
                 "message": f"{user.username} registered successfully",
                 "role": user.role.name
@@ -82,8 +100,8 @@ class RegisterAPIView(APIView):
 # login
 @method_decorator(csrf_exempt, name='dispatch')
 class LoginAPIView(APIView):
-    authentication_classes = []  
-    permission_classes = []   
+    # authentication_classes = []  
+    # permission_classes = []   
 
     def post(self, request):
 
@@ -108,41 +126,88 @@ class LoginAPIView(APIView):
         return Response({"error": "Invalid credentials"}, status=401)
 
 #logout  
+# class LogoutAPIView(APIView):
+#     permission_classes = [IsAuthenticated]
+
+#     def post(self, request):
+#         try:
+#             refresh_token = request.data.get("refresh")
+#             token = RefreshToken(refresh_token)
+#             token.blacklist()
+#             return Response({"message": "Logout successful"})
+#         except Exception:
+#             return Response({"error": "Invalid token"}, status=400)
+@method_decorator(csrf_exempt, name='dispatch')
 class LogoutAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
+        refresh_token = request.data.get("refresh")
+        
+        if not refresh_token:
+            return Response({"error": "Refresh token is required"}, status=400)
+        
         try:
-            refresh_token = request.data.get("refresh")
+            # blacklist refresh token
             token = RefreshToken(refresh_token)
             token.blacklist()
-            return Response({"message": "Logout successful"})
-        except Exception:
-            return Response({"error": "Invalid token"}, status=400)
+
+            # blacklist access token in redis
+            auth_header = request.headers.get("Authorization")
+            if auth_header and auth_header.startswith("Bearer "):
+                access_token_str = auth_header.split(" ")[1]
+                access_token = AccessToken(access_token_str)
+                jti = access_token["jti"]
+                
+                # store in redis until access token expires
+                expiry = access_token["exp"] - int(datetime.datetime.now().timestamp())
+                cache.set(f"blacklist_{jti}", "true", timeout=expiry)
+
+            return Response({"message": "Logout successful"}, status=200)
+        
+        except TokenError:
+            return Response({"error": "Invalid or expired refresh token"}, status=400)
 
 
 User = get_user_model()
 
 # view single profile
+# class ProfileView(APIView):
+#     permission_classes = [IsAuthenticated]
+
+#     def get(self, request, user_id=None):
+#         try:
+#             if user_id:
+#                 profile = Profile.objects.get(user__id=user_id)
+#             else:
+#                 profile = Profile.objects.get(user=request.user)
+#         except Profile.DoesNotExist:
+#             return Response({'error': 'Profile not found'}, status=404)
+
+#         if not has_permission(request.user, 'view_profile', target_user=profile.user):
+#             return Response({'error': 'Permission denied'}, status=403)
+
+#         serializer = ProfileSerializer(profile)
+#         return Response(serializer.data, status=200)
+
 class ProfileView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, user_id=None):
         try:
-            if user_id:
+            if user_id: 
+                # only allow if own profile or admin
+                if request.user.id != user_id and request.user.role.name.lower() != 'admin':
+                    return Response({'error': 'Permission denied'}, status=403)
                 profile = Profile.objects.get(user__id=user_id)
             else:
                 profile = Profile.objects.get(user=request.user)
         except Profile.DoesNotExist:
             return Response({'error': 'Profile not found'}, status=404)
 
-        if not has_permission(request.user, 'view_profile', target_user=profile.user):
-            return Response({'error': 'Permission denied'}, status=403)
-
         serializer = ProfileSerializer(profile)
         return Response(serializer.data, status=200)
-
-
+    
 # List all students (Admin)
 class ProfileListStudentsView(APIView):
     permission_classes = [IsAuthenticated]
@@ -222,48 +287,103 @@ class ProfileCreateView(APIView):
         return Response(serializer.data, status=201)
     
 # Edit profile
+# class ProfileEditView(APIView):
+#     permission_classes = [IsAuthenticated]
+
+#     def put(self, request, user_id=None):
+#         try:
+#             if user_id:
+#                 profile = Profile.objects.get(user__id=user_id)
+#             else:
+#                 profile = Profile.objects.get(user=request.user)
+#         except Profile.DoesNotExist:
+#             return Response({'error': 'Profile not found'}, status=404)
+
+#         if not has_permission(request.user, 'edit_profile', target_user=profile.user):
+#             return Response({'error': 'Permission denied'}, status=403)
+
+#         serializer = ProfileSerializer(profile, data=request.data, partial=True)
+#         if serializer.is_valid():
+#             serializer.save()
+#             return Response(serializer.data, status=200)
+
+#         return Response(serializer.errors, status=400)
+
 class ProfileEditView(APIView):
     permission_classes = [IsAuthenticated]
 
     def put(self, request, user_id=None):
-        try:
-            if user_id:
-                profile = Profile.objects.get(user__id=user_id)
-            else:
+        
+        # No user_id → just edit own profile from token
+        if not user_id:
+            try:
                 profile = Profile.objects.get(user=request.user)
-        except Profile.DoesNotExist:
-            return Response({'error': 'Profile not found'}, status=404)
+            except Profile.DoesNotExist:
+                return Response({'error': 'Profile not found'}, status=404)
 
-        if not has_permission(request.user, 'edit_profile', target_user=profile.user):
-            return Response({'error': 'Permission denied'}, status=403)
+            serializer = ProfileSerializer(profile, data=request.data, partial=True)
+            if serializer.is_valid():
+                serializer.save()
+                return Response(serializer.data, status=200)
+            return Response(serializer.errors, status=400)
+        # user_id present → must be admin
+        if str(request.user.role) != 'admin':
+            return Response({'error': 'Permission denied. Admins only.'}, status=403)
+
+        # Admin → check if that user_id record exists
+        try:
+            profile = Profile.objects.get(user__id=user_id)
+        except Profile.DoesNotExist:
+            return Response({'error': f'Profile with user_id {user_id} not found'}, status=404)
 
         serializer = ProfileSerializer(profile, data=request.data, partial=True)
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data, status=200)
-
-        return Response(serializer.errors, status=400)
+        return Response(serializer.errors, status=400)      
 
 # delete profile
+# class ProfileDeleteView(APIView):
+#     permission_classes = [IsAuthenticated]
+
+#     def delete(self, request, user_id=None):
+#         if user_id:
+#             try:
+#                 profile = Profile.objects.get(user__id=user_id)
+#             except Profile.DoesNotExist:
+#                 return Response({"error": "Profile not found"}, status=404)
+#         else:
+#             profile = getattr(request.user, 'profile', None)
+#             if not profile:
+#                 return Response({"error": "Profile not found"}, status=404)
+
+#         if not has_permission(request.user, 'delete_profile', target_user=profile.user):
+#             return Response({"error": "Permission denied"}, status=403)
+
+#         profile.user.delete()
+#         return Response({"success": f"Profile {profile.user.username} deleted"}, status=200)
+    
 class ProfileDeleteView(APIView):
     permission_classes = [IsAuthenticated]
 
     def delete(self, request, user_id=None):
-        if user_id:
-            try:
-                profile = Profile.objects.get(user__id=user_id)
-            except Profile.DoesNotExist:
-                return Response({"error": "Profile not found"}, status=404)
-        else:
-            profile = getattr(request.user, 'profile', None)
-            if not profile:
-                return Response({"error": "Profile not found"}, status=404)
 
-        if not has_permission(request.user, 'delete_profile', target_user=profile.user):
-            return Response({"error": "Permission denied"}, status=403)
+        # No user_id → student/teacher own profile delete → NOT allowed
+        if not user_id:
+            if str(request.user.role) != 'admin':
+                return Response({"error": "Permission denied. Only admins can delete profiles."}, status=403)
 
+        # user_id present → must be admin
+        if str(request.user.role) != 'admin':
+            return Response({"error": "Permission denied. Admins only."}, status=403)
+
+        # Admin → check if that user_id record exists
+        try:
+            profile = Profile.objects.get(user__id=user_id)
+        except Profile.DoesNotExist:
+            return Response({"error": f"Profile with user_id {user_id} not found"}, status=404)
+
+        username = profile.user.username
         profile.user.delete()
-        return Response({"success": f"Profile {profile.user.username} deleted"}, status=200)
-    
-
+        return Response({"success": f"Profile {username} deleted"}, status=200)
 

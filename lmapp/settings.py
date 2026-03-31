@@ -40,7 +40,9 @@ INSTALLED_APPS = [
     'rest_framework',
     'accounts.apps.AccountsConfig', 
     'rest_framework_simplejwt.token_blacklist',
-    
+    'lmapp',
+    'courses',
+    'enrollment',
 ]
 
 MIDDLEWARE = [
@@ -53,7 +55,7 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
-ROOT_URLCONF = 'lmsapp.urls'
+ROOT_URLCONF = 'lmapp.urls'
 
 TEMPLATES = [
     {
@@ -71,7 +73,7 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = 'lmsapp.wsgi.application'
+WSGI_APPLICATION = 'lmapp.wsgi.application'
 
 
 # Database
@@ -134,16 +136,19 @@ REST_FRAMEWORK = {
     ],
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.AllowAny',
-    ]
+    ],
+     'DEFAULT_AUTHENTICATION_CLASSES': (
+        'accounts.authentication.BlacklistJWTAuthentication',  # replace yourapp
+    ),
 }
 AUTH_USER_MODEL = 'accounts.User'
 
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'lms_db',
+        'NAME': 'lmsdb',
         'USER': 'lms_user',
-        'PASSWORD': '12345',
+        'PASSWORD': '1234',
         'HOST': 'localhost',
         'PORT': '5432',
     }
@@ -154,4 +159,12 @@ from datetime import timedelta
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=30),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
+    'BLACKLIST_AFTER_ROTATION': True,
+}
+
+CACHES = {
+    "default": {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": "redis://127.0.0.1:6379/1",
+    }
 }
