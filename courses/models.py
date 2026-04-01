@@ -9,6 +9,11 @@ class Course(models.Model):
     created_by = models.ForeignKey(User, on_delete=models.CASCADE,  related_name='courses_created')
     duration = models.IntegerField()
     is_published = models.BooleanField(default=False)
+    teacher = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='courses'
+    )
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

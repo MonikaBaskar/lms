@@ -1,7 +1,14 @@
 from django.urls import path
-from .views import EnrollStudentAPIView, CourseEnrollmentListAPIView
+from .views import (
+    EnrollmentListAPIView,
+    EnrollmentCreateAPIView,
+    EnrollmentUpdateAPIView,
+    EnrollmentDeleteAPIView
+)
 
 urlpatterns = [
-    path('enroll/', EnrollStudentAPIView.as_view(), name='enroll-student'),
-    path('course/<int:course_id>/enrollments/', CourseEnrollmentListAPIView.as_view(), name='course-enrollments'),
+    path('enrollments/', EnrollmentListAPIView.as_view(), name='enrollment-list'),
+    path('enrollments/create/', EnrollmentCreateAPIView.as_view(), name='enrollment-create'),
+    path('enrollments/<int:enrollment_id>/update/', EnrollmentUpdateAPIView.as_view(), name='enrollment-update'),
+    path('enrollments/<int:enrollment_id>/delete/', EnrollmentDeleteAPIView.as_view(), name='enrollment-delete'),
 ]

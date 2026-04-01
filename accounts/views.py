@@ -199,6 +199,10 @@ class ProfileView(APIView):
                 # only allow if own profile or admin
                 if request.user.id != user_id and request.user.role.name.lower() != 'admin':
                     return Response({'error': 'Permission denied'}, status=403)
+                
+                print(f"Looking for user_id: {user_id}")
+                print(f"Request user: {request.user.id}, role: {request.user.role.name}")
+                print(f"Profile exists: {Profile.objects.filter(user__id=user_id).exists()}")
                 profile = Profile.objects.get(user__id=user_id)
             else:
                 profile = Profile.objects.get(user=request.user)
